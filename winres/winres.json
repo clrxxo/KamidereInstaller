@@ -1,0 +1,35 @@
+{
+  "RT_GROUP_ICON": {
+    "APP": {
+      "0000": [
+        "icon.png"
+      ]
+    }
+  },
+  "RT_MANIFEST": {
+    "#1": {
+      "0409": {
+        "description": "An installer for the Kamidere Discord mod",
+        "minimum-os": "win10",
+        "execution-level": "as invoker",
+        "dpi-awareness": "system"
+      }
+    }
+  },
+  "RT_VERSION": {
+    "#1": {
+      "0000": {
+        "info": {
+          "0409": {
+            "Comments": "Comments",
+            "CompanyName": "Kamidere",
+            "FileDescription": "Kamidere Installer",
+            "LegalCopyright": "© 2026 Kamidere contributors - GPL3.0",
+            "ProductName": "Kamidere Installer",
+            "ProductVersion": ""
+          }
+        }
+      }
+    }
+  }
+}
