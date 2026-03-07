@@ -1,6 +1,6 @@
 # Kamidere Installer
 
-The Kamidere Installer patches Discord Desktop with the `Kamidere` desktop build from the sibling `KamidereCord` project or from release assets.
+The Kamidere Installer patches Discord Desktop with the `Kamidere` desktop build from the sibling `Kamidere` project or from release assets.
 
 ## Usage
 
