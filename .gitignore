@@ -1,0 +1,11 @@
+.idea/
+*~
+KamidereInstaller
+KamidereInstaller.exe
+KamidereCli.exe
+KamidereCli-linux
+KamidereInstaller-x11
+KamidereInstaller.app
+*.exe
+*.syso
+*.old
