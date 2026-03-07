@@ -8,10 +8,13 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	path "path/filepath"
 	"strings"
+
+	"kamidereinstaller/buildinfo"
 
 	"github.com/ProtonMail/go-appdir"
 )
@@ -19,6 +22,83 @@ import (
 var BaseDir string
 var BaseDirErr error
 var KamidereDirectory string
+
+func pathExists(target string) bool {
+	_, err := os.Stat(target)
+	return err == nil
+}
+
+func pathIsDir(target string) bool {
+	info, err := os.Stat(target)
+	return err == nil && info.IsDir()
+}
+
+func isLocalKamidereBuildDir(target string) bool {
+	if !pathIsDir(target) {
+		return false
+	}
+
+	return pathExists(path.Join(target, "package.json")) &&
+		pathExists(path.Join(target, "patcher.js"))
+}
+
+func findLocalDevelopmentBuild() string {
+	if buildinfo.InstallerTag != buildinfo.VersionUnknown {
+		return ""
+	}
+
+	exePath, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+
+	exeDir := path.Dir(exePath)
+	candidates := []string{
+		path.Join(exeDir, "..", "Kamidere", "dist", "desktop"),
+		path.Join(exeDir, "..", "KamidereCord", "dist", "desktop"),
+		path.Join(exeDir, "dist", "desktop"),
+	}
+
+	for _, candidate := range candidates {
+		candidate = path.Clean(candidate)
+		if isLocalKamidereBuildDir(candidate) {
+			return candidate
+		}
+	}
+
+	return ""
+}
+
+func validateKamiderePayload() error {
+	info, err := os.Stat(KamidereDirectory)
+	if err != nil {
+		if buildinfo.InstallerTag == buildinfo.VersionUnknown {
+			return fmt.Errorf(
+				"could not find a local %s build at %s. Run `pnpm build` in the sibling Kamidere project or use `pnpm inject` from that project",
+				BrandName,
+				KamidereDirectory,
+			)
+		}
+
+		return fmt.Errorf("could not find %s payload at %s: %w", BrandName, KamidereDirectory, err)
+	}
+
+	if !info.IsDir() {
+		return nil
+	}
+
+	requiredFiles := []string{
+		path.Join(KamidereDirectory, "package.json"),
+		path.Join(KamidereDirectory, "patcher.js"),
+	}
+	for _, requiredFile := range requiredFiles {
+		if !pathExists(requiredFile) {
+			return fmt.Errorf("local %s build is incomplete: missing %s", BrandName, requiredFile)
+		}
+	}
+
+	return nil
+}
 
 func init() {
 	if dir := getenvAny(EnvUserDataDir, LegacyEnvUserDataDir); dir != "" {
@@ -52,6 +132,9 @@ func init() {
 			if _, err := os.Stat(legacyPath); err == nil {
 				Log.Debug("Reusing legacy install at", legacyPath)
 				KamidereDirectory = legacyPath
+			} else if localBuildDir := findLocalDevelopmentBuild(); localBuildDir != "" {
+				Log.Debug("Using local development build at", localBuildDir)
+				KamidereDirectory = localBuildDir
 			}
 		}
 	}
@@ -119,6 +202,9 @@ func (di *DiscordInstall) patch() error {
 		if err := InstallLatestBuilds(); err != nil {
 			return nil // already shown dialog so don't return same error again
 		}
+	}
+	if err := validateKamiderePayload(); err != nil {
+		return err
 	}
 
 	PreparePatch(di)
