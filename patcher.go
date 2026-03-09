@@ -22,6 +22,7 @@ import (
 var BaseDir string
 var BaseDirErr error
 var KamidereDirectory string
+var ErrOriginalBackupMissing = errors.New("original app.asar backup is missing")
 
 func pathExists(target string) bool {
 	_, err := os.Stat(target)
@@ -196,6 +197,58 @@ func patchAppAsar(dir string, isSystemElectron bool) (err error) {
 	return nil
 }
 
+func repairPatchedAppAsar(dir string, isSystemElectron bool) (err error) {
+	appAsar := path.Join(dir, "app.asar")
+	appAsarRepairTmp := path.Join(dir, "app.asar.repair.tmp")
+	appAsarRepairBak := path.Join(dir, "app.asar.repair.bak")
+
+	Log.Warn("Original backup is missing. Rewriting patched app.asar in place for repair.")
+
+	_ = os.RemoveAll(appAsarRepairTmp)
+	_ = os.RemoveAll(appAsarRepairBak)
+
+	if err = WriteAppAsar(appAsarRepairTmp, KamidereDirectory); err != nil {
+		return err
+	}
+
+	restoreOriginal := false
+	defer func() {
+		if err != nil {
+			_ = os.RemoveAll(appAsarRepairTmp)
+			if restoreOriginal {
+				if innerErr := os.Rename(appAsarRepairBak, appAsar); innerErr != nil {
+					Log.Error("Failed to restore app.asar after repair failure.", innerErr)
+				}
+			}
+			return
+		}
+
+		_ = os.RemoveAll(appAsarRepairTmp)
+		_ = os.RemoveAll(appAsarRepairBak)
+	}()
+
+	if pathExists(appAsar) {
+		if err = os.Rename(appAsar, appAsarRepairBak); err != nil {
+			err = CheckIfErrIsCauseItsBusyRn(err)
+			return err
+		}
+		restoreOriginal = true
+	}
+
+	if err = os.Rename(appAsarRepairTmp, appAsar); err != nil {
+		err = CheckIfErrIsCauseItsBusyRn(err)
+		return err
+	}
+
+	if isSystemElectron && pathExists(appAsarRepairBak+".unpacked") && !pathExists(appAsar+".unpacked") {
+		if err = os.Rename(appAsarRepairBak+".unpacked", appAsar+".unpacked"); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
 func (di *DiscordInstall) patch() error {
 	Log.Info("Patching " + di.path + "...")
 	if LatestHash != InstalledHash {
@@ -212,19 +265,27 @@ func (di *DiscordInstall) patch() error {
 	if di.isPatched {
 		Log.Info(di.path, "is already patched. Unpatching first...")
 		if err := di.unpatch(); err != nil {
-			if errors.Is(err, os.ErrPermission) {
+			if errors.Is(err, ErrOriginalBackupMissing) {
+				Log.Warn("Original backup is missing. Continuing with in-place repair instead of full unpatch.")
+			} else if errors.Is(err, os.ErrPermission) {
 				return err
+			} else {
+				return errors.New("patch: Failed to unpatch already patched install '" + di.path + "':\n" + err.Error())
 			}
-			return errors.New("patch: Failed to unpatch already patched install '" + di.path + "':\n" + err.Error())
 		}
 	}
 
+	targetDir := path.Join(di.appPath, "..")
 	if di.isSystemElectron {
-		if err := patchAppAsar(di.path, true); err != nil {
+		targetDir = di.path
+	}
+
+	if di.isPatched && !pathExists(path.Join(targetDir, "_app.asar")) {
+		if err := repairPatchedAppAsar(targetDir, di.isSystemElectron); err != nil {
 			return err
 		}
 	} else {
-		if err := patchAppAsar(path.Join(di.appPath, ".."), false); err != nil {
+		if err := patchAppAsar(targetDir, di.isSystemElectron); err != nil {
 			return err
 		}
 	}
@@ -284,6 +345,10 @@ func unpatchAppAsar(dir string, isSystemElectron bool) (errOut error) {
 	appAsar := path.Join(dir, "app.asar")
 	appAsarTmp := path.Join(dir, "app.asar.tmp")
 	_appAsar := path.Join(dir, "_app.asar")
+
+	if !pathExists(_appAsar) {
+		return fmt.Errorf("%w at %s", ErrOriginalBackupMissing, _appAsar)
+	}
 
 	var renamesDone [][]string
 	defer func() {
